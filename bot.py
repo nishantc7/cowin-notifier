@@ -13,11 +13,11 @@ from telegram.ext import (
     CallbackContext,
 )
 from telegram import ReplyKeyboardMarkup, Update, ReplyKeyboardRemove
-from peewee import SqliteDatabase, Model, DateTimeField, CharField, FixedCharField, IntegerField, BooleanField
-from datetime import datetime
+from peewee import SqliteDatabase, Model, DateTimeField, CharField, FixedCharField, IntegerField, BooleanField,IntegrityError,DoesNotExist
+from datetime import datetime,date
 
 
-STATE, DISTRICT, PINCODE, DONE = range(4)
+STATE, DISTRICT, PINCODE, DONE, AGE, ALERT = range(6)
 
 
 
@@ -45,12 +45,12 @@ class User(Model):
     created_on = DateTimeField(default=datetime.now)
     last_alert_sent_at: datetime = DateTimeField(default=datetime.now)
     total_alerts_sent = IntegerField(default=0)
-    telegram_id = CharField(max_length=220, unique=True)
+    telegram_id = CharField(max_length=220, unique=True, index=True)
     chat_id = CharField(max_length=220)
     age_limit = IntegerField(default=18)
     district_id = IntegerField(default=0)
-    state_id = IntegerField(default=0)
     alert_enabled = BooleanField(default=False, index=True)
+
 
     class Meta:
         database = db
@@ -82,7 +82,7 @@ def create_markup(choice, data) -> list:
 
 def start(update, context):
 
-    context.bot.send_message(chat_id=update.effective_chat.id, text="Hi, I'll tell you if you have available vaccine slots in your district in the near future, Select your state to get started")
+    context.bot.send_message(chat_id=update.effective_chat.id, text="Hi, I'll tell you if you have available vaccine slots in your district in the near future, \n you can use /reset to delete your data, to continue,   Select your State")
     
     r = requests.get("https://cdn-api.co-vin.in/api/v2/admin/location/states", headers=headers)
     if(r.status_code != 200):
@@ -117,26 +117,116 @@ def state_choice(update, context):
 
     )
 
-    user : User
-    user, _ = User.get_or_create(telegram_id=update.effective_user.id, state_id=state_id, defaults={
-        'chat_id':update.effective_chat.id
-    })
-    user.save()
-    print(update.effective_user.id)
-    print(user)
-    for user in User.select():
-        print(user.state_id)
-
     return DISTRICT
 
 def district_choice(update, context):
     text = update.message.text
     print(text)
-    print("hello from district")
-    return DISTRICT
-   
+    today = date.today().strftime("%d/%m/%Y")
+
+    # print("hello from district")
+
+    user : User
+    try:
+        district_id, _ = text.split(".")
+
+    except ValueError:
+        district_id = text[:3]
+    print(district_id)
+    try:
+        user, _ = User.get_or_create(telegram_id=update.effective_user.id, district_id=district_id, defaults={
+            'chat_id':update.effective_chat.id
+        })
+        user.save()
+    except IntegrityError:
+        user = (User
+           .replace(telegram_id=update.effective_user.id, district_id=district_id, 
+            chat_id=update.effective_chat.id)
+           .execute())
+
+    update.message.reply_text(
+        "Select Age group: ",
+        reply_markup=ReplyKeyboardMarkup([['18+','45+']],one_time_keyboard=True, resize_keyboard=True)
+
+    )
+    print(get_sessions_today(update.effective_user.id))
+
+    return AGE
+
+def age_choice(update, context):
+    text = update.message.text
+
+    # user = User.get(User.telegram_id == update.effective_user.id)
+    # print(user.district_id)
+    # TODO : Save age to filter sessions later
+
+    print(text)
+    today = date.today().strftime("%d-%m-%Y")
+    
+    update.message.reply_text(
+        "Setup daily alert? ",
+        reply_markup=ReplyKeyboardMarkup([['Yes','Nevermind']],one_time_keyboard=True, resize_keyboard=True)
+
+    )
+    
+    
+    
+
+    return ALERT 
 # print(STATE)
 
+def alert_choice(update, context):
+    text = update.message.text
+    alert = False
+    if text=="Yes":
+        alert = True
+
+        update.message.reply_text('Daily Alerts Activated, to change settings press /start again or /reset to reset', reply_markup=ReplyKeyboardRemove())
+    else:
+        update.message.reply_text('Daily Alerts Deactivated, to change settings press /start again or /reset to reset', reply_markup=ReplyKeyboardRemove())
+    
+    
+    
+    return ConversationHandler.END
+
+def get_sessions_today(telegram_id):
+    today = date.today().strftime("%d-%m-%Y")
+    user = User.get(User.telegram_id == telegram_id)
+    #print("from get_sessions")
+    #print(user.district_id)
+
+
+    r = requests.get("https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/calendarByDistrict?district_id="+str(user.district_id)+"&date="+today, headers=headers)
+    if(r.status_code != 200):
+        send_as_markdown("API Error, please try after some time.", update)
+        return DONE
+
+
+    centers = r.json()['centers']
+    number_of_centers = 0
+    for center in centers:
+        number_of_centers+=1
+    
+    if number_of_centers > 0 :
+        return True
+    
+
+def done(update: Update, context: CallbackContext) -> int:
+    update.message.reply_text(
+        f"Thank you !\n\nIf you want to start a new search, Press /start again.",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    return ConversationHandler.END
+
+def reset_function(update, context):
+    user_id = update.effective_user.id
+    try:
+        user = User.get(User.telegram_id == update.effective_user.id)
+    except DoesNotExist:
+        update.effective_chat.send_message("No data exists to delete.")
+        return DONE 
+    user.delete_instance()
+    update.effective_chat.send_message("Your data has been successfully deleted. Click on /start to restart the bot.")
 
 def main() -> None:
     
@@ -163,6 +253,23 @@ def main() -> None:
                 )
 
             ],
+            AGE: [
+                MessageHandler(Filters.text,
+                age_choice
+                )
+            ],
+            DONE: [
+                MessageHandler(
+                    Filters.regex('^Done$'),done
+                )
+            ],
+            ALERT: [
+                MessageHandler(
+                    Filters.text,
+                    alert_choice
+                )
+            ]
+
         },
         fallbacks=[MessageHandler(Filters.regex('^Start$'), start)],
     
@@ -171,6 +278,9 @@ def main() -> None:
     # dispatcher.add_handler(start_handler)
 
     dispatcher.add_handler(conversation_handler)
+    reset_handler = CommandHandler('reset', reset_function)
+    dispatcher.add_handler(reset_handler)
+
     updater.start_polling()
     updater.idle()
 
