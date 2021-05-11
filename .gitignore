@@ -141,3 +141,5 @@ secret.py
 
 # db
 *.db
+*.db-shm
+*.db-wal
