@@ -59,6 +59,7 @@ class User(Model):
     telegram_id = CharField(max_length=220, unique=True, index=True)
     chat_id = CharField(max_length=220)
     age_limit = IntegerField(default=1)
+    last_alert_sent_at: datetime = DateTimeField(default=datetime.now)
     district_id = IntegerField(default=18)
     alert_enabled = BooleanField(default=False, index=True)
 
@@ -244,10 +245,16 @@ def check_slots_for_all_users(context):
     
     for user in User.select():
         print("user:"+str(user))
-        
+        delta = datetime.now() - user.last_alert_sent_at
+        user.last_alert_sent_at = datetime.now()
+        # Minimum Delay of 3 hours between alerts
+        if delta.seconds < 10800:
+            print("Delta at work")
+            continue
+            
         if(user.alert_enabled):
             if(get_sessions_today(user)):
-                bot.send_message(chat_id=user.chat_id,text="Available sessions found for today for your age.")
+                bot.send_message(chat_id=user.chat_id,text="Available sessions found for today for your age. Use /reset to stop receiving further alerts. ")
         time.sleep(30)
 
 
