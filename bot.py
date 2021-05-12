@@ -1,9 +1,9 @@
+from pytz import timezone
 import requests
 import logging
 
 import os
 from secret import TOKEN
-from telegram.ext import CommandHandler
 from telegram.ext import (
     Updater,
     CommandHandler,
@@ -11,13 +11,25 @@ from telegram.ext import (
     Filters,
     ConversationHandler,
     CallbackContext,
+    JobQueue
 )
-from telegram import ReplyKeyboardMarkup, Update, ReplyKeyboardRemove
+from telegram import ReplyKeyboardMarkup, Update, ReplyKeyboardRemove, Bot
 from peewee import SqliteDatabase, Model, DateTimeField, CharField, FixedCharField, IntegerField, BooleanField,IntegrityError,DoesNotExist
 from datetime import datetime,date
+import threading
+import time
+
+
+
+
+
+LIMIT_EXCEEDED_DELAY_INTERVAL = 60 * 5 
+API_DELAY_INTERVAL = 180  
 
 
 STATE, DISTRICT, PINCODE, DONE, AGE, ALERT = range(6)
+
+
 
 
 
@@ -149,7 +161,7 @@ def district_choice(update, context):
         reply_markup=ReplyKeyboardMarkup([['18+','45+']],one_time_keyboard=True, resize_keyboard=True)
 
     )
-    print(get_sessions_today(update.effective_user.id))
+    # print(get_sessions_today(update.effective_user.id))
 
     return AGE
 
@@ -186,14 +198,20 @@ def alert_choice(update, context):
         update.message.reply_text('Daily Alerts Deactivated, to change settings press /start again or /reset to reset', reply_markup=ReplyKeyboardRemove())
     
     
+    user, _ = User.get_or_create(telegram_id=update.effective_user.id)
+    user.alert_enabled=alert
+    user.save()
+    
+    
     
     return ConversationHandler.END
 
-def get_sessions_today(telegram_id):
+def get_sessions_today(user):
     today = date.today().strftime("%d-%m-%Y")
-    user = User.get(User.telegram_id == telegram_id)
+    # user = User.get(User.telegram_id == telegram_id)
     #print("from get_sessions")
-    #print(user.district_id)
+    print("district:")
+    print(user.district_id)
 
 
     r = requests.get("https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/calendarByDistrict?district_id="+str(user.district_id)+"&date="+today, headers=headers)
@@ -209,9 +227,25 @@ def get_sessions_today(telegram_id):
     
     if number_of_centers > 0 :
         return True
-    
 
-def done(update: Update, context: CallbackContext) -> int:
+def check_slots_for_all_users(context):
+    bot = context.bot
+    print("hello scheduler")
+    
+    for user in User.select():
+        print("user:"+str(user))
+        
+        if(user.alert_enabled):
+            if(get_sessions_today(user)):
+                bot.send_message(chat_id=user.chat_id,text="Available sessions found for today")
+        time.sleep(5)
+
+
+
+
+
+
+def done(update: Update, context: CallbackContext):
     update.message.reply_text(
         f"Thank you !\n\nIf you want to start a new search, Press /start again.",
         reply_markup=ReplyKeyboardRemove(),
@@ -237,7 +271,7 @@ def main() -> None:
     db.connect()
     db.create_tables([User, ])
 
-
+    
     conversation_handler = ConversationHandler(
         entry_points = [CommandHandler('start', start)],
         states = {
@@ -282,6 +316,17 @@ def main() -> None:
     dispatcher.add_handler(reset_handler)
 
     updater.start_polling()
+    #check_slots_for_all_users()
+
+    # threading.Thread(target=check_slots_for_all_users).start()
+
+    job_queue = updater.job_queue
+    
+    # check per hour
+
+    job_queue.run_repeating(check_slots_for_all_users,interval=3600,first=0.0)
+
+
     updater.idle()
 
 if __name__ == '__main__':
