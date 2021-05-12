@@ -261,7 +261,7 @@ def check_slots_for_all_users(context):
         if(user.alert_enabled):
             if(get_sessions_today(user)):
                 bot.send_message(chat_id=user.chat_id,text="Available sessions found for today for your age.")
-        time.sleep(5)
+        time.sleep(30)
 
 
 
