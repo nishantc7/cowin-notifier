@@ -116,8 +116,8 @@ def state_choice(update, context):
     try:
         state_id, state_name = text.split(".")
     except Exception as e:
-        context.bot.send_message(chat_id=update.effective_chat.id, text="Error")
-        logger.exception("frequent_background_worker", exc_info=e)
+        context.bot.send_message(chat_id=update.effective_chat.id, text="Error try /start again")
+        logger.exception("State Unpacking error", exc_info=e)
         return DONE
 
     r = requests.get("https://cdn-api.co-vin.in/api/v2/admin/location/districts/"+state_id, headers=headers)
@@ -304,7 +304,7 @@ def main() -> None:
             ],
             DONE: [
                 MessageHandler(
-                    Filters.regex('^Done$'),done
+                    Filters.text,done
                 )
             ],
             ALERT: [
@@ -316,6 +316,7 @@ def main() -> None:
 
         },
         fallbacks=[MessageHandler(Filters.regex('^Start$'), start)],
+        allow_reentry=True,
     
     )
     
