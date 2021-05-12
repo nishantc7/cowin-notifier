@@ -113,7 +113,12 @@ def start(update, context):
 
 def state_choice(update, context):
     text = update.message.text
-    state_id, state_name = text.split(".")
+    try:
+        state_id, state_name = text.split(".")
+    except Exception as e:
+        context.bot.send_message(chat_id=update.effective_chat.id, text="Error")
+        logger.exception("frequent_background_worker", exc_info=e)
+        return DONE
 
     r = requests.get("https://cdn-api.co-vin.in/api/v2/admin/location/districts/"+state_id, headers=headers)
     if(r.status_code != 200):
@@ -162,7 +167,11 @@ def district_choice(update, context):
 
 def age_choice(update, context):
     text = update.message.text
-    age= text[:2]
+    if(text=='18 - 44' or text=='45+'):
+        age= text[:2]
+    else:
+        logger.info("Wrong age argument")
+        age=18
 
     user, _ = User.get_or_create(telegram_id=update.effective_user.id)
     user.age_limit=age
@@ -219,7 +228,7 @@ def get_sessions_today(user):
     number_of_sessions = 0
     for center in centers:
         for session in center['sessions']:
-            if(user.age_limit>=session['min_age_limit']):
+            if(user.age_limit>=session['min_age_limit'] and session['available_capacity']):
                 number_of_sessions+=1
 
         
