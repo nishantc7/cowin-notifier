@@ -59,8 +59,8 @@ class User(Model):
     total_alerts_sent = IntegerField(default=0)
     telegram_id = CharField(max_length=220, unique=True, index=True)
     chat_id = CharField(max_length=220)
-    age_limit = IntegerField(default=18)
-    district_id = IntegerField(default=0)
+    age_limit = IntegerField(default=1)
+    district_id = IntegerField(default=18)
     alert_enabled = BooleanField(default=False, index=True)
 
 
@@ -98,7 +98,7 @@ def start(update, context):
     
     r = requests.get("https://cdn-api.co-vin.in/api/v2/admin/location/states", headers=headers)
     if(r.status_code != 200):
-        send_as_markdown("API Error", update)
+        context.bot.send_message(chat_id=update.effective_chat.id, text="API Error")
         return STATE
     
     states_data = r.json()
@@ -118,7 +118,8 @@ def state_choice(update, context):
 
     r = requests.get("https://cdn-api.co-vin.in/api/v2/admin/location/districts/"+state_id, headers=headers)
     if(r.status_code != 200):
-        send_as_markdown("API Error", update)
+        context.bot.send_message(chat_id=update.effective_chat.id, text="API Error")
+
         return DISTRICT
     
     district_data = r.json()
@@ -158,7 +159,7 @@ def district_choice(update, context):
 
     update.message.reply_text(
         "Select Age group: ",
-        reply_markup=ReplyKeyboardMarkup([['18+','45+']],one_time_keyboard=True, resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup([['18 - 44','45+']],one_time_keyboard=True, resize_keyboard=True)
 
     )
     # print(get_sessions_today(update.effective_user.id))
@@ -167,12 +168,19 @@ def district_choice(update, context):
 
 def age_choice(update, context):
     text = update.message.text
+    age= text[:2]
+    
 
     # user = User.get(User.telegram_id == update.effective_user.id)
     # print(user.district_id)
     # TODO : Save age to filter sessions later
 
-    print(text)
+    # print(text)
+
+    user, _ = User.get_or_create(telegram_id=update.effective_user.id)
+    user.age_limit=age
+    user.save()
+
     today = date.today().strftime("%d-%m-%Y")
     
     update.message.reply_text(
@@ -206,6 +214,11 @@ def alert_choice(update, context):
     
     return ConversationHandler.END
 
+
+
+    
+
+
 def get_sessions_today(user):
     today = date.today().strftime("%d-%m-%Y")
     # user = User.get(User.telegram_id == telegram_id)
@@ -215,20 +228,30 @@ def get_sessions_today(user):
 
 
     r = requests.get("https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/calendarByDistrict?district_id="+str(user.district_id)+"&date="+today, headers=headers)
+    if(r.status_code == 403):
+        time.sleep(LIMIT_EXCEEDED_DELAY_INTERVAL)
+        return False
     if(r.status_code != 200):
-        send_as_markdown("API Error, please try after some time.", update)
-        return DONE
-
-
-    centers = r.json()['centers']
-    number_of_centers = 0
-    for center in centers:
-        number_of_centers+=1
+        return False
     
-    if number_of_centers > 0 :
+    centers = r.json()['centers']
+    number_of_sessions = 0
+    for center in centers:
+        for session in center['sessions']:
+            if(user.age_limit>=session['min_age_limit']):
+                number_of_sessions+=1
+
+        
+    
+    if number_of_sessions > 0 :
         return True
+    else:
+        return False
 
 def check_slots_for_all_users(context):
+    
+
+    
     bot = context.bot
     print("hello scheduler")
     
@@ -237,7 +260,7 @@ def check_slots_for_all_users(context):
         
         if(user.alert_enabled):
             if(get_sessions_today(user)):
-                bot.send_message(chat_id=user.chat_id,text="Available sessions found for today")
+                bot.send_message(chat_id=user.chat_id,text="Available sessions found for today for your age.")
         time.sleep(5)
 
 
@@ -321,7 +344,7 @@ def main() -> None:
     # threading.Thread(target=check_slots_for_all_users).start()
 
     job_queue = updater.job_queue
-    
+
     # check per hour
 
     job_queue.run_repeating(check_slots_for_all_users,interval=3600,first=0.0)
