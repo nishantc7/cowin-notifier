@@ -35,14 +35,14 @@ STATE, DISTRICT, PINCODE, DONE, AGE, ALERT = range(6)
 
 
 
-#print(TOKEN)
+
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
 
-#Using Recommended settings
+# Using Recommended settings
 
 db = SqliteDatabase('my_app.db', pragmas={
     'journal_mode': 'wal',
@@ -55,7 +55,6 @@ db = SqliteDatabase('my_app.db', pragmas={
 
 class User(Model):
     created_on = DateTimeField(default=datetime.now)
-    last_alert_sent_at: datetime = DateTimeField(default=datetime.now)
     total_alerts_sent = IntegerField(default=0)
     telegram_id = CharField(max_length=220, unique=True, index=True)
     chat_id = CharField(max_length=220)
@@ -134,10 +133,7 @@ def state_choice(update, context):
 
 def district_choice(update, context):
     text = update.message.text
-    print(text)
     today = date.today().strftime("%d/%m/%Y")
-
-    # print("hello from district")
 
     user : User
     try:
@@ -145,7 +141,6 @@ def district_choice(update, context):
 
     except ValueError:
         district_id = text[:3]
-    print(district_id)
     try:
         user, _ = User.get_or_create(telegram_id=update.effective_user.id, district_id=district_id, defaults={
             'chat_id':update.effective_chat.id
@@ -162,20 +157,12 @@ def district_choice(update, context):
         reply_markup=ReplyKeyboardMarkup([['18 - 44','45+']],one_time_keyboard=True, resize_keyboard=True)
 
     )
-    # print(get_sessions_today(update.effective_user.id))
 
     return AGE
 
 def age_choice(update, context):
     text = update.message.text
     age= text[:2]
-    
-
-    # user = User.get(User.telegram_id == update.effective_user.id)
-    # print(user.district_id)
-    # TODO : Save age to filter sessions later
-
-    # print(text)
 
     user, _ = User.get_or_create(telegram_id=update.effective_user.id)
     user.age_limit=age
@@ -193,7 +180,6 @@ def age_choice(update, context):
     
 
     return ALERT 
-# print(STATE)
 
 def alert_choice(update, context):
     text = update.message.text
@@ -221,11 +207,6 @@ def alert_choice(update, context):
 
 def get_sessions_today(user):
     today = date.today().strftime("%d-%m-%Y")
-    # user = User.get(User.telegram_id == telegram_id)
-    #print("from get_sessions")
-    print("district:")
-    print(user.district_id)
-
 
     r = requests.get("https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/calendarByDistrict?district_id="+str(user.district_id)+"&date="+today, headers=headers)
     if(r.status_code == 403):
@@ -250,10 +231,7 @@ def get_sessions_today(user):
 
 def check_slots_for_all_users(context):
     
-
-    
     bot = context.bot
-    print("hello scheduler")
     
     for user in User.select():
         print("user:"+str(user))
