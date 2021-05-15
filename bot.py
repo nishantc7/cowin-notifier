@@ -247,6 +247,7 @@ def check_slots_for_all_users(context):
         print("user:"+str(user))
         delta = datetime.now() - user.last_alert_sent_at
         user.last_alert_sent_at = datetime.now()
+        user.save()
         # Minimum Delay of 3 hours between alerts
         if delta.seconds < 10800:
             print("Delta at work")
